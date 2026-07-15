@@ -171,7 +171,7 @@ def main():
     metadata = {
         "Name": display_name,
         "Author": "ClassicSkinMorph",
-        "Version": "0.5",
+        "Version": "0.6",
         "Description": "Forces %s Skin%d Classic on every %s skin with linked PBE BIN dependencies" %
                        (namespace, source_skin, champion)
     }

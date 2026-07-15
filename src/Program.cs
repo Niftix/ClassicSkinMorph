@@ -20,8 +20,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Classic Skin Morph")]
 [assembly: AssemblyProduct("Classic Skin Morph")]
-[assembly: AssemblyVersion("0.5.0.0")]
-[assembly: AssemblyFileVersion("0.5.0.0")]
+[assembly: AssemblyVersion("0.6.0.0")]
+[assembly: AssemblyFileVersion("0.6.0.0")]
 
 namespace ClassicSkinMorph
 {
@@ -474,10 +474,10 @@ namespace ClassicSkinMorph
 
             Controls.Add(new Panel { Location = new Point(40, 230), Size = new Size(420, 1), BackColor = Color.FromArgb(35, 50, 80) });
             var patchTitle = MakeLabel(new Point(20, 239), new Size(460, 16), 8.5f, FontStyle.Bold, ContentAlignment.MiddleCenter, Color.FromArgb(212, 175, 55));
-            patchTitle.Text = "PATCH NOTE V0.5";
+            patchTitle.Text = "PATCH NOTE V0.6";
             Controls.Add(patchTitle);
             var notes = MakeLabel(new Point(60, 266), new Size(400, 74), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
-            notes.Text = "- Added Classic Jax and Master Yi PBE\r\n- Fiddlesticks, Garen, Heimerdinger and Karthus\r\n- Kassadin, Lux, Morgana, Nasus and Skarner\r\n- Teemo and Twitch";
+            notes.Text = "- Added 13 Classic PBE skins\r\n- Automatic activation of every mod package\r\n- Enemy emotes and sounds hidden natively\r\n- Improved PBE path and dependency handling";
             Controls.Add(notes);
 
             // WinForms inserts newly added controls at the front of the Z-order.
