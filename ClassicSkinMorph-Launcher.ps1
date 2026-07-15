@@ -9,7 +9,7 @@ $repository = 'Niftix/ClassicSkinMorph'
 $branch = 'master'
 $installDirectory = $PSScriptRoot
 $versionFile = Join-Path $installDirectory '.update-version'
-$application = Join-Path $installDirectory 'ClassicSkinMorph.ps1'
+$application = Join-Path $installDirectory 'ClassicSkinMorph.exe'
 $developmentCheckout = Test-Path -LiteralPath (Join-Path $installDirectory '.git') -PathType Container
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -90,7 +90,7 @@ function Install-Update([string]$CommitSha) {
         [IO.Compression.ZipFile]::ExtractToDirectory($archive, $extract)
         $source = Get-ChildItem -LiteralPath $extract -Directory | Select-Object -First 1
         if (-not $source) { throw 'Invalid GitHub archive.' }
-        foreach ($required in @('ClassicSkinMorph.ps1', 'ClassicSkinMorph.psm1', 'config.example.json')) {
+        foreach ($required in @('ClassicSkinMorph.exe', 'config.example.json', 'assets/classic-skin-morph-logo.png')) {
             if (-not (Test-Path -LiteralPath (Join-Path $source.FullName $required) -PathType Leaf)) {
                 throw "Required file is missing: $required"
             }
@@ -114,7 +114,7 @@ $form.Add_Shown({
         if ($developmentCheckout -and -not $ForceUpdate) {
             Set-LauncherStatus 'Local development version.' 'Automatic updates are disabled in a Git repository'
             if (-not $NoLaunch) {
-                Start-Process powershell.exe -WorkingDirectory $installDirectory -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$application`"") | Out-Null
+                Start-Process -FilePath $application -WorkingDirectory $installDirectory -ArgumentList '--skip-update' | Out-Null
             }
             $form.Close()
             return
@@ -138,7 +138,7 @@ $form.Add_Shown({
         Set-LauncherStatus 'GitHub is unavailable.' 'Starting the local version'
     }
     if (-not $NoLaunch) {
-        Start-Process powershell.exe -WorkingDirectory $installDirectory -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$application`"") | Out-Null
+        Start-Process -FilePath $application -WorkingDirectory $installDirectory -ArgumentList '--skip-update' | Out-Null
     }
     $form.Close()
 })
