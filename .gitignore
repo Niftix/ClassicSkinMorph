@@ -1,6 +1,7 @@
 # Configuration et etat propres a chaque utilisateur
 /config.json
 /state/
+/.update-version
 
 # Fichiers temporaires et journaux
 *.log
