@@ -8,6 +8,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Management;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Reflection;
 using System.Text;
@@ -603,8 +604,17 @@ namespace ClassicSkinMorph
             {
                 string root = AppDomain.CurrentDomain.BaseDirectory;
                 string updater = Path.Combine(root, "ClassicSkinMorph-Launcher.ps1");
-                if (File.Exists(updater))
+                try
                 {
+                    if (!File.Exists(updater))
+                    {
+                        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                        using (var client = new WebClient())
+                        {
+                            client.Headers[HttpRequestHeader.UserAgent] = "ClassicSkinMorph-Bootstrap";
+                            client.DownloadFile("https://raw.githubusercontent.com/Niftix/ClassicSkinMorph/master/ClassicSkinMorph-Launcher.ps1", updater);
+                        }
+                    }
                     Process.Start(new ProcessStartInfo {
                         FileName = "powershell.exe",
                         Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + updater + "\"",
@@ -612,6 +622,18 @@ namespace ClassicSkinMorph
                         WindowStyle = ProcessWindowStyle.Hidden
                     });
                     return;
+                }
+                catch (Exception ex)
+                {
+                    bool localInstallComplete = File.Exists(Path.Combine(root, "LTK Manager", "ltk-manager.exe")) &&
+                        Directory.Exists(Path.Combine(root, "mods")) && Directory.Exists(Path.Combine(root, "assets"));
+                    if (!localInstallComplete)
+                    {
+                        MessageBox.Show("Unable to download Classic Skin Morph files from GitHub.\r\n\r\n" + ex.Message,
+                            "Classic Skin Morph", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                    // A complete local installation remains usable when GitHub is temporarily unavailable.
                 }
             }
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
