@@ -131,7 +131,7 @@ $engineTimer.Add_Tick({
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(34, 197, 94)
         $status.ForeColor = [Drawing.Color]::FromArgb(74, 222, 128)
-        $status.Text = 'Skins Classic charges - LIVE'
+        $status.Text = 'Vous pouvez a present jouer - SKIN CLASSIC ACTIF'
     } elseif ($script:loadingTicks -ge 240) {
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
