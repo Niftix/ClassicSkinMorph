@@ -2,31 +2,28 @@ param([string]$Config = (Join-Path $PSScriptRoot 'config.json'))
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'ClassicSkinMorph.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ClassicSkinMorph.Ltk.psm1') -Force
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 if (-not (Test-Path -LiteralPath $Config)) {
-    $configTemplate = Join-Path $PSScriptRoot 'config.example.json'
-    if (-not (Test-Path -LiteralPath $configTemplate)) {
-        throw "Configuration et modele introuvables."
-    }
-    Copy-Item -LiteralPath $configTemplate -Destination $Config
+    $template = Join-Path $PSScriptRoot 'config.example.json'
+    if (-not (Test-Path -LiteralPath $template)) { throw 'Modele de configuration introuvable.' }
+    Copy-Item -LiteralPath $template -Destination $Config
 }
 $settings = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
-$script:archiveIndex = if ([string]::IsNullOrWhiteSpace([string]$settings.pbeChampionsDirectory)) {
-    @{}
-} else {
-    Get-ClassicArchiveIndex -ChampionsDirectory $settings.pbeChampionsDirectory
-}
-$manifestPath = Join-Path $PSScriptRoot $settings.selectionManifest
 $modLibrary = Join-Path $PSScriptRoot $settings.modLibrary
-New-Item -ItemType Directory -Path $modLibrary -Force | Out-Null
+$sessionPath = Join-Path $PSScriptRoot 'state\ltk-session.json'
+$ltkExe = Join-Path $PSScriptRoot 'LTK Manager\ltk-manager.exe'
+$script:ltkSessionStarted = $false
+$script:ltkReady = $false
+$script:loadingTicks = 0
 
 $form = New-Object Windows.Forms.Form
 $form.Text = 'ClassicSkinMorph'
-$form.Size = New-Object Drawing.Size(760, 470)
-$form.MinimumSize = New-Object Drawing.Size(620, 360)
+$form.ClientSize = New-Object Drawing.Size(470, 170)
+$form.FormBorderStyle = 'FixedSingle'
+$form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = [Drawing.Color]::FromArgb(16, 24, 34)
 $form.ForeColor = [Drawing.Color]::WhiteSmoke
@@ -38,162 +35,130 @@ $title.Location = New-Object Drawing.Point(22, 18)
 $title.AutoSize = $true
 $form.Controls.Add($title)
 
+$indicator = New-Object Windows.Forms.Label
+$indicator.Text = [char]0x25CF
+$indicator.Font = New-Object Drawing.Font('Segoe UI Symbol', 18)
+$indicator.Location = New-Object Drawing.Point(23, 66)
+$indicator.AutoSize = $true
+$indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
+$form.Controls.Add($indicator)
+
 $status = New-Object Windows.Forms.Label
-$status.Text = "En attente d'une partie..."
-$status.Font = New-Object Drawing.Font('Segoe UI', 10)
-$status.Location = New-Object Drawing.Point(25, 58)
-$status.AutoSize = $true
+$status.Text = 'Chargement des skins Classic...'
+$status.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
+$status.Location = New-Object Drawing.Point(52, 72)
+$status.Size = New-Object Drawing.Size(390, 24)
 $status.ForeColor = [Drawing.Color]::FromArgb(116, 192, 252)
 $form.Controls.Add($status)
 
-$grid = New-Object Windows.Forms.DataGridView
-$grid.Location = New-Object Drawing.Point(24, 92)
-$grid.Size = New-Object Drawing.Size(695, 245)
-$grid.Anchor = 'Top,Bottom,Left,Right'
-$grid.ReadOnly = $true
-$grid.AllowUserToAddRows = $false
-$grid.AllowUserToDeleteRows = $false
-$grid.AutoSizeColumnsMode = 'Fill'
-$grid.BackgroundColor = [Drawing.Color]::FromArgb(24, 34, 46)
-$grid.BorderStyle = 'None'
-$grid.RowHeadersVisible = $false
-$grid.EnableHeadersVisualStyles = $false
-$grid.GridColor = [Drawing.Color]::FromArgb(55, 68, 82)
-$grid.ColumnHeadersHeight = 32
-$grid.ColumnHeadersDefaultCellStyle.BackColor = [Drawing.Color]::FromArgb(31, 44, 58)
-$grid.ColumnHeadersDefaultCellStyle.ForeColor = [Drawing.Color]::WhiteSmoke
-$grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = [Drawing.Color]::FromArgb(31, 44, 58)
-$grid.ColumnHeadersDefaultCellStyle.Font = New-Object Drawing.Font('Segoe UI Semibold', 9)
-$grid.DefaultCellStyle.BackColor = [Drawing.Color]::FromArgb(24, 34, 46)
-$grid.DefaultCellStyle.ForeColor = [Drawing.Color]::FromArgb(226, 232, 240)
-$grid.DefaultCellStyle.SelectionBackColor = [Drawing.Color]::FromArgb(14, 116, 190)
-$grid.DefaultCellStyle.SelectionForeColor = [Drawing.Color]::White
-$grid.DefaultCellStyle.Font = New-Object Drawing.Font('Segoe UI', 9)
-$grid.DefaultCellStyle.Padding = New-Object Windows.Forms.Padding(4, 2, 4, 2)
-$grid.AlternatingRowsDefaultCellStyle.BackColor = [Drawing.Color]::FromArgb(29, 41, 54)
-$grid.RowTemplate.Height = 28
-[void]$grid.Columns.Add('Champion', 'Champion')
-[void]$grid.Columns.Add('Archive', 'Type de skin PBE')
-[void]$grid.Columns.Add('Package', 'Paquet LTK')
-$form.Controls.Add($grid)
+$progress = New-Object Windows.Forms.ProgressBar
+$progress.Location = New-Object Drawing.Point(27, 108)
+$progress.Size = New-Object Drawing.Size(416, 6)
+$progress.Style = 'Marquee'
+$progress.MarqueeAnimationSpeed = 22
+$form.Controls.Add($progress)
 
 $footer = New-Object Windows.Forms.Label
-$footer.Text = 'Version 0.1'
-$footer.Location = New-Object Drawing.Point(25, 397)
-$footer.Anchor = 'Bottom,Left'
+$footer.Text = 'Version 0.2'
+$footer.Location = New-Object Drawing.Point(27, 137)
 $footer.AutoSize = $true
-$footer.ForeColor = [Drawing.Color]::FromArgb(148, 163, 184)
+$footer.ForeColor = [Drawing.Color]::FromArgb(100, 116, 139)
 $form.Controls.Add($footer)
 
-$ltkButton = New-Object Windows.Forms.Button
-$ltkButton.Text = 'Ouvrir LTK Manager'
-$ltkButton.Location = New-Object Drawing.Point(24, 350)
-$ltkButton.Size = New-Object Drawing.Size(160, 32)
-$ltkButton.Anchor = 'Bottom,Left'
-$ltkButton.Add_Click({
-    $bundledLtk = Join-Path $PSScriptRoot 'LTK Manager\ltk-manager.exe'
-    $installedLtk = Join-Path $env:LOCALAPPDATA 'LTK Manager\ltk-manager.exe'
-    $ltk = @($bundledLtk, $installedLtk) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+function Test-PbePath {
+    -not [string]::IsNullOrWhiteSpace([string]$settings.pbeChampionsDirectory) -and
+    (Test-Path -LiteralPath $settings.pbeChampionsDirectory -PathType Container) -and
+    @(Get-ChildItem -LiteralPath $settings.pbeChampionsDirectory -Filter '*.wad.client' -File -ErrorAction SilentlyContinue).Count -gt 0
+}
 
-    if ($ltk) { Start-Process -FilePath $ltk -WorkingDirectory (Split-Path -Parent $ltk) | Out-Null }
-    else { [Windows.Forms.MessageBox]::Show('LTK Manager est introuvable dans le dossier du logiciel.', 'ClassicSkinMorph') | Out-Null }
-})
-$form.Controls.Add($ltkButton)
-
-$packageButton = New-Object Windows.Forms.Button
-$packageButton.Text = 'Afficher le paquet'
-$packageButton.Location = New-Object Drawing.Point(194, 350)
-$packageButton.Size = New-Object Drawing.Size(190, 32)
-$packageButton.Anchor = 'Bottom,Left'
-$packageButton.Add_Click({
-    Start-Process explorer.exe -ArgumentList "`"$modLibrary`"" | Out-Null
-})
-$form.Controls.Add($packageButton)
-
-$pathButton = New-Object Windows.Forms.Button
-$pathButton.Text = 'Choisir dossier PBE'
-$pathButton.Location = New-Object Drawing.Point(394, 350)
-$pathButton.Size = New-Object Drawing.Size(170, 32)
-$pathButton.Anchor = 'Bottom,Left'
-$pathButton.Add_Click({
+function Initialize-PbePath {
+    if (Test-PbePath) { return $true }
     $dialog = New-Object Windows.Forms.FolderBrowserDialog
-    $dialog.Description = 'Choisir le dossier League of Legends PBE ou le dossier Champions'
+    $dialog.Description = 'Premiere configuration : choisissez League of Legends PBE'
     $dialog.ShowNewFolderButton = $false
-    if (-not [string]::IsNullOrWhiteSpace([string]$settings.pbeChampionsDirectory) -and
-        (Test-Path -LiteralPath $settings.pbeChampionsDirectory)) {
-        $dialog.SelectedPath = $settings.pbeChampionsDirectory
-    }
-    if ($dialog.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return }
-
+    if ($dialog.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return $false }
     $selected = $dialog.SelectedPath
-    $candidates = @(
-        $selected
-        (Join-Path $selected 'Game\DATA\FINAL\Champions')
-        (Join-Path $selected 'DATA\FINAL\Champions')
-    )
+    $candidates = @($selected,(Join-Path $selected 'Game\DATA\FINAL\Champions'),(Join-Path $selected 'DATA\FINAL\Champions'))
     $championsPath = $candidates | Where-Object {
         (Test-Path -LiteralPath $_ -PathType Container) -and
         @(Get-ChildItem -LiteralPath $_ -Filter '*.wad.client' -File -ErrorAction SilentlyContinue).Count -gt 0
     } | Select-Object -First 1
-
     if (-not $championsPath) {
-        [Windows.Forms.MessageBox]::Show('Aucune archive de champion trouvee dans ce dossier.', 'ClassicSkinMorph') | Out-Null
+        [Windows.Forms.MessageBox]::Show('Dossier PBE invalide.', 'ClassicSkinMorph') | Out-Null
+        return $false
+    }
+    $settings.pbeChampionsDirectory = [IO.Path]::GetFullPath($championsPath)
+    [IO.File]::WriteAllText($Config, ($settings | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
+    return $true
+}
+
+function Start-SkinEngine {
+    try {
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
+        $status.ForeColor = [Drawing.Color]::FromArgb(116, 192, 252)
+        $status.Text = 'Chargement des skins Classic...'
+        $progress.Visible = $true
+        [Windows.Forms.Application]::DoEvents()
+        $session = Start-ClassicLtkSession -LtkExe $ltkExe -ModLibrary $modLibrary -ChampionsDirectory $settings.pbeChampionsDirectory -SessionPath $sessionPath
+        $script:ltkSessionStarted = $true
+        $script:loadingTicks = 0
+        $status.Text = "Preparation de $($session.packageCount) skins..."
+    } catch {
+        $progress.Visible = $false
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
+        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.Text = $_.Exception.Message
+    }
+}
+
+$engineTimer = New-Object Windows.Forms.Timer
+$engineTimer.Interval = 500
+$engineTimer.Add_Tick({
+    if (-not $script:ltkSessionStarted) { return }
+    Hide-ClassicLtkWindow
+    if ($script:ltkReady -and -not (Test-ClassicLtkReady)) {
+        $script:ltkReady = $false
+        $progress.Visible = $false
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
+        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.Text = 'Patcher interrompu - relancez ClassicSkinMorph'
         return
     }
-
-    $settings.pbeChampionsDirectory = [IO.Path]::GetFullPath($championsPath)
-    $script:archiveIndex = Get-ClassicArchiveIndex -ChampionsDirectory $settings.pbeChampionsDirectory
-    $json = $settings | ConvertTo-Json -Depth 10
-    [IO.File]::WriteAllText($Config, $json, [Text.UTF8Encoding]::new($false))
-    $script:lastFingerprint = ''
-    $grid.Rows.Clear()
-    $status.Text = "Dossier PBE configure - en attente d'une partie..."
-})
-$form.Controls.Add($pathButton)
-
-$script:lastFingerprint = ''
-$timer = New-Object Windows.Forms.Timer
-$timer.Interval = [Math]::Max(1000, [int]$settings.pollIntervalMs)
-$timer.Add_Tick({
-    try {
-        $players = @(Get-LivePlayers -Endpoint $settings.liveClientEndpoint)
-        if ($players.Count -eq 0) {
-            $status.Text = "En attente d'une partie..."
-            $grid.Rows.Clear()
-            $script:lastFingerprint = ''
-            return
-        }
-
-        $selection = @(New-ClassicSelection -Players $players -ArchiveIndex $script:archiveIndex -ModLibrary $modLibrary)
-        if ($selection.Count -eq 0) {
-            $status.Text = 'Transition de partie - donnees joueur incompletes'
-            return
-        }
-        $ready = @($selection | Where-Object ready)
-        $fingerprint = ($selection | ForEach-Object { "$($_.key):$($_.ready)" }) -join '|'
-        if ($fingerprint -eq $script:lastFingerprint) { return }
-        $script:lastFingerprint = $fingerprint
-
-        $grid.Rows.Clear()
-        foreach ($item in $selection) {
-            $archiveState = $item.variant
-            $packageState = if ($item.ready) { Split-Path -Leaf $item.package } else { 'Absent - aucune action' }
-            [void]$grid.Rows.Add($item.champion, $archiveState, $packageState)
-        }
-        Write-SelectionManifest -Selection $selection -Path $manifestPath
-        $launched = Invoke-ConfiguredAdapter -Adapter $settings.adapter -ManifestPath $manifestPath -ReadySelection $ready
-        $status.Text = if ($ready.Count -eq 0) {
-            "Partie detectee - aucun paquet Classic pret, aucune action"
-        } elseif ($launched) {
-            "$($ready.Count) paquet(s) Classic transmis a l'adaptateur"
-        } else {
-            "$($ready.Count) paquet(s) pret(s) - manifeste genere"
-        }
-    } catch {
-        $status.Text = 'Reponse Live Client temporairement invalide - nouvelle tentative...'
-        $script:lastFingerprint = ''
+    if ($script:ltkReady) { return }
+    $script:loadingTicks++
+    if (Test-ClassicLtkReady) {
+        $script:ltkReady = $true
+        $progress.Visible = $false
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(34, 197, 94)
+        $status.ForeColor = [Drawing.Color]::FromArgb(74, 222, 128)
+        $status.Text = 'Skins Classic charges - LIVE'
+    } elseif ($script:loadingTicks -ge 240) {
+        $progress.Visible = $false
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
+        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.Text = 'Le patcher LTK ne repond pas'
     }
 })
-$form.Add_Shown({ $timer.Start() })
-$form.Add_FormClosed({ $timer.Stop() })
+
+$form.Add_Shown({
+    if (-not (Initialize-PbePath)) {
+        $form.Close()
+        return
+    }
+    $engineTimer.Start()
+    Start-SkinEngine
+})
+
+$form.Add_FormClosing({
+    $engineTimer.Stop()
+    if ($script:ltkSessionStarted -or (Test-Path -LiteralPath $sessionPath)) {
+        $progress.Visible = $true
+        $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
+        $status.ForeColor = [Drawing.Color]::FromArgb(251, 191, 36)
+        $status.Text = 'Arret et nettoyage des skins...'
+        [Windows.Forms.Application]::DoEvents()
+        try { Stop-ClassicLtkSession -SessionPath $sessionPath } catch { }
+    }
+})
+
 [void]$form.ShowDialog()
