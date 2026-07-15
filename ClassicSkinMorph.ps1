@@ -8,7 +8,7 @@ Add-Type -AssemblyName System.Drawing
 
 if (-not (Test-Path -LiteralPath $Config)) {
     $template = Join-Path $PSScriptRoot 'config.example.json'
-    if (-not (Test-Path -LiteralPath $template)) { throw 'Modele de configuration introuvable.' }
+    if (-not (Test-Path -LiteralPath $template)) { throw 'Configuration template not found.' }
     Copy-Item -LiteralPath $template -Destination $Config
 }
 $settings = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
@@ -20,7 +20,7 @@ $script:ltkReady = $false
 $script:loadingTicks = 0
 
 $form = New-Object Windows.Forms.Form
-$form.Text = 'ClassicSkinMorph'
+$form.Text = 'Classic Skin Morph'
 $form.ClientSize = New-Object Drawing.Size(470, 170)
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
@@ -29,7 +29,7 @@ $form.BackColor = [Drawing.Color]::FromArgb(16, 24, 34)
 $form.ForeColor = [Drawing.Color]::WhiteSmoke
 
 $title = New-Object Windows.Forms.Label
-$title.Text = 'CLASSICSKINMORPH'
+$title.Text = 'CLASSIC SKIN MORPH'
 $title.Font = New-Object Drawing.Font('Segoe UI Semibold', 18)
 $title.Location = New-Object Drawing.Point(22, 18)
 $title.AutoSize = $true
@@ -44,7 +44,7 @@ $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
 $form.Controls.Add($indicator)
 
 $status = New-Object Windows.Forms.Label
-$status.Text = 'Chargement des skins Classic...'
+$status.Text = 'Loading Classic skins...'
 $status.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
 $status.Location = New-Object Drawing.Point(52, 72)
 $status.Size = New-Object Drawing.Size(390, 24)
@@ -59,7 +59,7 @@ $progress.MarqueeAnimationSpeed = 22
 $form.Controls.Add($progress)
 
 $footer = New-Object Windows.Forms.Label
-$footer.Text = 'Version 0.2'
+$footer.Text = 'V0.4'
 $footer.Location = New-Object Drawing.Point(27, 137)
 $footer.AutoSize = $true
 $footer.ForeColor = [Drawing.Color]::FromArgb(100, 116, 139)
@@ -74,7 +74,7 @@ function Test-PbePath {
 function Initialize-PbePath {
     if (Test-PbePath) { return $true }
     $dialog = New-Object Windows.Forms.FolderBrowserDialog
-    $dialog.Description = 'Premiere configuration : choisissez League of Legends PBE'
+    $dialog.Description = 'First-time setup: select your League of Legends PBE folder'
     $dialog.ShowNewFolderButton = $false
     if ($dialog.ShowDialog() -ne [Windows.Forms.DialogResult]::OK) { return $false }
     $selected = $dialog.SelectedPath
@@ -84,7 +84,7 @@ function Initialize-PbePath {
         @(Get-ChildItem -LiteralPath $_ -Filter '*.wad.client' -File -ErrorAction SilentlyContinue).Count -gt 0
     } | Select-Object -First 1
     if (-not $championsPath) {
-        [Windows.Forms.MessageBox]::Show('Dossier PBE invalide.', 'ClassicSkinMorph') | Out-Null
+        [Windows.Forms.MessageBox]::Show('Invalid PBE folder.', 'Classic Skin Morph') | Out-Null
         return $false
     }
     $settings.pbeChampionsDirectory = [IO.Path]::GetFullPath($championsPath)
@@ -96,13 +96,13 @@ function Start-SkinEngine {
     try {
         $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
         $status.ForeColor = [Drawing.Color]::FromArgb(116, 192, 252)
-        $status.Text = 'Chargement des skins Classic...'
+        $status.Text = 'Loading Classic skins...'
         $progress.Visible = $true
         [Windows.Forms.Application]::DoEvents()
         $session = Start-ClassicLtkSession -LtkExe $ltkExe -ModLibrary $modLibrary -ChampionsDirectory $settings.pbeChampionsDirectory -SessionPath $sessionPath
         $script:ltkSessionStarted = $true
         $script:loadingTicks = 0
-        $status.Text = "Preparation de $($session.packageCount) skins..."
+        $status.Text = "Preparing $($session.packageCount) skins..."
     } catch {
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
@@ -121,7 +121,7 @@ $engineTimer.Add_Tick({
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
         $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
-        $status.Text = 'Patcher interrompu - relancez ClassicSkinMorph'
+        $status.Text = 'Patcher stopped - restart Classic Skin Morph'
         return
     }
     if ($script:ltkReady) { return }
@@ -131,12 +131,12 @@ $engineTimer.Add_Tick({
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(34, 197, 94)
         $status.ForeColor = [Drawing.Color]::FromArgb(74, 222, 128)
-        $status.Text = 'Vous pouvez a present jouer - SKIN CLASSIC ACTIF'
+        $status.Text = 'You can now play - CLASSIC SKINS ACTIVE'
     } elseif ($script:loadingTicks -ge 240) {
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
         $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
-        $status.Text = 'Le patcher LTK ne repond pas'
+        $status.Text = 'The LTK patcher is not responding'
     }
 })
 
@@ -155,7 +155,7 @@ $form.Add_FormClosing({
         $progress.Visible = $true
         $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
         $status.ForeColor = [Drawing.Color]::FromArgb(251, 191, 36)
-        $status.Text = 'Arret et nettoyage des skins...'
+        $status.Text = 'Stopping and cleaning up skins...'
         [Windows.Forms.Application]::DoEvents()
         try { Stop-ClassicLtkSession -SessionPath $sessionPath } catch { }
     }

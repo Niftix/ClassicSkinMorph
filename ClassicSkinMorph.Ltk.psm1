@@ -14,7 +14,7 @@ function Get-FantomeMetadata {
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
     try {
         $entry = $archive.GetEntry('META/info.json')
-        if (-not $entry) { throw "META/info.json absent dans $(Split-Path -Leaf $Path)" }
+        if (-not $entry) { throw "META/info.json is missing from $(Split-Path -Leaf $Path)" }
         $reader = [IO.StreamReader]::new($entry.Open())
         try { return ($reader.ReadToEnd() | ConvertFrom-Json) } finally { $reader.Dispose() }
     } finally { $archive.Dispose() }
@@ -87,19 +87,19 @@ function Start-ClassicLtkSession {
     $activeLtkProcesses = @(Get-Process -Name 'ltk-manager','ltk_patcher_host','cslol-host' -ErrorAction SilentlyContinue |
         Where-Object { -not $_.HasExited })
     if (-not $SkipProcessCheck -and $activeLtkProcesses.Count -gt 0) {
-        throw 'Fermez LTK Manager avant de lancer ClassicSkinMorph.'
+        throw 'Close LTK Manager before starting Classic Skin Morph.'
     }
     # CIM also catches half-terminated League processes left behind by a crash.
     # The patcher enumerates those processes at a lower level and may otherwise
     # try to attach to an invalid instance.
     $leagueProcesses = @(Get-CimInstance Win32_Process -Filter "Name = 'League of Legends.exe'" -ErrorAction SilentlyContinue)
     if (-not $SkipProcessCheck -and $leagueProcesses.Count -gt 0) {
-        throw 'Des processus League sont encore actifs ou bloques apres un crash. Redemarrez Windows, puis lancez ClassicSkinMorph avant League.'
+        throw 'League processes are still running or stuck after a crash. Restart Windows, then start Classic Skin Morph before League.'
     }
 
     $packages = @(Get-ChildItem -LiteralPath $ModLibrary -Filter '*.fantome' -File | Sort-Object Name)
-    if ($packages.Count -eq 0) { throw 'Aucun paquet .fantome trouve.' }
-    if (-not (Test-Path -LiteralPath $LtkExe -PathType Leaf)) { throw 'Moteur LTK introuvable.' }
+    if ($packages.Count -eq 0) { throw 'No .fantome packages were found.' }
+    if (-not (Test-Path -LiteralPath $LtkExe -PathType Leaf)) { throw 'LTK engine not found.' }
 
     $dataRoot = Join-Path $env:APPDATA 'dev.leaguetoolkit.manager'
     $profileRoot = Join-Path $dataRoot 'profiles\default'
