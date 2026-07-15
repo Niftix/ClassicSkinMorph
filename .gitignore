@@ -1,0 +1,19 @@
+# Configuration et etat propres a chaque utilisateur
+/config.json
+/state/
+
+# Fichiers temporaires et journaux
+*.log
+*.tmp
+*.bak
+*.swp
+~$*
+
+# Windows et outils de developpement
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.user
+*.suo
