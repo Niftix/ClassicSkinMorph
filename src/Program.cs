@@ -347,8 +347,7 @@ namespace ClassicSkinMorph
             get
             {
                 return Process.GetProcessesByName("cslol-host").Any(p => !p.HasExited)
-                    || Process.GetProcessesByName("ltk_patcher_host").Any(p => !p.HasExited)
-                    || Process.GetProcessesByName("ltk-manager").Any(p => !p.HasExited && p.Responding);
+                    || Process.GetProcessesByName("ltk_patcher_host").Any(p => !p.HasExited);
             }
         }
         public void HideManagerWindow()
@@ -477,7 +476,7 @@ namespace ClassicSkinMorph
             patchTitle.Text = "PATCH NOTE V0.6";
             Controls.Add(patchTitle);
             var notes = MakeLabel(new Point(60, 266), new Size(400, 74), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
-            notes.Text = "- Added 13 Classic PBE skins\r\n- Automatic activation of every mod package\r\n- Enemy emotes and sounds hidden natively\r\n- Improved PBE path and dependency handling";
+            notes.Text = "- Added 15 Classic and legacy skins\r\n- Season 1 models added for Vayne and Blitzcrank\r\n- Enemy emotes and sounds hidden natively\r\n- Improved PBE path and dependency handling";
             Controls.Add(notes);
 
             // WinForms inserts newly added controls at the front of the Z-order.
