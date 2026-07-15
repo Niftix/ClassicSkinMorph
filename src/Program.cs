@@ -249,7 +249,9 @@ namespace ClassicSkinMorph
             string overlayPath = Path.Combine(profileRoot, "overlay.json");
 
             session = new SessionRecord { DataRoot = dataRoot, Backups = new List<BackupRecord>(), ModIds = new List<string>() };
-            foreach (string path in new[] { settingsPath, libraryPath, overlayPath })
+            // The selected PBE installation is the engine's persistent target. Restoring an
+            // older settings.json on shutdown can silently switch LTK back to live League.
+            foreach (string path in new[] { libraryPath, overlayPath })
             {
                 string backup = Path.Combine(backupRoot, Path.GetFileName(path));
                 bool existed = File.Exists(path);
@@ -284,6 +286,23 @@ namespace ClassicSkinMorph
                     progress.Report(new LoadProgress { Percent = Math.Max(1, 30 * (i + 1) / packages.Length), Status = "LOADING CLASSIC SKINS..." });
                 }
                 library["mods"] = entries.ToArray();
+                // LTK 1.11 reads enabled mods from the active library profile. Merely adding
+                // archives (or writing overlay.json) imports them but leaves them disabled.
+                var profiles = ToObjectList(library.ContainsKey("profiles") ? library["profiles"] : null);
+                string activeProfileId = library.ContainsKey("activeProfileId") ? Convert.ToString(library["activeProfileId"]) : "";
+                foreach (object profileValue in profiles)
+                {
+                    var profile = profileValue as Dictionary<string, object>;
+                    if (profile == null) continue;
+                    string profileId = profile.ContainsKey("id") ? Convert.ToString(profile["id"]) : "";
+                    if (activeProfileId.Length == 0 || string.Equals(profileId, activeProfileId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        profile["enabledMods"] = session.ModIds.ToArray();
+                        profile["modOrder"] = session.ModIds.ToArray();
+                        break;
+                    }
+                }
+                library["profiles"] = profiles.ToArray();
                 Json.Write(libraryPath, library);
                 Json.Write(overlayPath, new Dictionary<string, object> {
                     { "version", 5 }, { "enabledMods", session.ModIds.ToArray() },
@@ -323,7 +342,15 @@ namespace ClassicSkinMorph
             session = null;
         }
 
-        public bool IsReady { get { return Process.GetProcessesByName("cslol-host").Any(p => !p.HasExited) || Process.GetProcessesByName("ltk_patcher_host").Any(p => !p.HasExited); } }
+        public bool IsReady
+        {
+            get
+            {
+                return Process.GetProcessesByName("cslol-host").Any(p => !p.HasExited)
+                    || Process.GetProcessesByName("ltk_patcher_host").Any(p => !p.HasExited)
+                    || Process.GetProcessesByName("ltk-manager").Any(p => !p.HasExited && p.Responding);
+            }
+        }
         public void HideManagerWindow()
         {
             foreach (var process in Process.GetProcessesByName("ltk-manager"))
@@ -343,7 +370,7 @@ namespace ClassicSkinMorph
 
         private void WriteSettings(string path, string championsDirectory)
         {
-            string leaguePath = Path.GetFullPath(Path.Combine(championsDirectory, "..", "..", "..", ".."));
+            string leaguePath = Path.GetFullPath(Path.Combine(championsDirectory, "..", "..", ".."));
             Dictionary<string, object> settings = File.Exists(path) ? Json.ReadObject(path) : DefaultSettings(leaguePath);
             settings["leaguePath"] = leaguePath.Replace('\\', '/'); settings["firstRunComplete"] = true;
             settings["minimizeToTray"] = true; settings["startInTray"] = true;
@@ -450,7 +477,7 @@ namespace ClassicSkinMorph
             patchTitle.Text = "PATCH NOTE V0.5";
             Controls.Add(patchTitle);
             var notes = MakeLabel(new Point(60, 266), new Size(400, 74), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
-            notes.Text = "›  Native C# application\r\n›  Animated loading and active states\r\n›  Integrated automatic GitHub updates";
+            notes.Text = "- Native C# application\r\n- Animated loading and active states\r\n- Integrated automatic GitHub updates\r\n- Added Classic Jax PBE\r\n- Added Classic Master Yi PBE";
             Controls.Add(notes);
 
             // WinForms inserts newly added controls at the front of the Z-order.
