@@ -503,6 +503,7 @@ namespace ClassicSkinMorph
             {
                 string champions = EnsurePbeConfiguration();
                 if (champions == null) { Close(); return; }
+                HideEnemySummonerEmotes(champions);
                 logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "dev.leaguetoolkit.manager", "logs", "ltk-manager." + DateTime.Now.ToString("yyyy-MM-dd") + ".log");
                 logStartLine = File.Exists(logPath) ? File.ReadLines(logPath).Count() : 0;
                 SetState(LauncherState.Loading, "LOADING CLASSIC SKINS...", 0);
@@ -602,6 +603,30 @@ namespace ClassicSkinMorph
         private static bool ValidChampionsDirectory(string path)
         {
             try { return !string.IsNullOrWhiteSpace(path) && Directory.Exists(path) && Directory.GetFiles(path, "*.wad.client").Length > 0; } catch { return false; }
+        }
+
+        private static void HideEnemySummonerEmotes(string championsDirectory)
+        {
+            string installRoot = Path.GetFullPath(Path.Combine(championsDirectory, "..", "..", "..", ".."));
+            string configRoot = Path.Combine(installRoot, "Config");
+            string gameConfig = Path.Combine(configRoot, "game.cfg");
+            if (File.Exists(gameConfig))
+            {
+                string text = File.ReadAllText(gameConfig);
+                string updated = Regex.Replace(text, @"(?im)^HideEnemySummonerEmotes\s*=\s*\d+\s*$", "HideEnemySummonerEmotes=1");
+                if (updated == text && !Regex.IsMatch(text, @"(?im)^HideEnemySummonerEmotes\s*="))
+                    updated += (updated.EndsWith("\n") ? "" : Environment.NewLine) + "HideEnemySummonerEmotes=1" + Environment.NewLine;
+                if (updated != text) File.WriteAllText(gameConfig, updated, new UTF8Encoding(false));
+            }
+
+            string persisted = Path.Combine(configRoot, "PersistedSettings.json");
+            if (File.Exists(persisted))
+            {
+                string text = File.ReadAllText(persisted);
+                string pattern = @"(\""name\""\s*:\s*\""HideEnemySummonerEmotes\""\s*,\s*\""value\""\s*:\s*\""?)\d+(\""?)";
+                string updated = Regex.Replace(text, pattern, "${1}1$2", RegexOptions.IgnoreCase);
+                if (updated != text) File.WriteAllText(persisted, updated, new UTF8Encoding(false));
+            }
         }
 
         private void OnClosing(object sender, FormClosingEventArgs e)
