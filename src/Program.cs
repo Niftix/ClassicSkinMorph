@@ -477,7 +477,7 @@ namespace ClassicSkinMorph
             patchTitle.Text = "PATCH NOTE V0.5";
             Controls.Add(patchTitle);
             var notes = MakeLabel(new Point(60, 266), new Size(400, 74), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
-            notes.Text = "- Native C# application\r\n- Animated loading and active states\r\n- Integrated automatic GitHub updates\r\n- Added Classic Jax PBE\r\n- Added Classic Master Yi PBE";
+            notes.Text = "- Added Classic Jax and Master Yi PBE\r\n- Fiddlesticks, Garen, Heimerdinger and Karthus\r\n- Kassadin, Lux, Morgana, Nasus and Skarner\r\n- Teemo and Twitch";
             Controls.Add(notes);
 
             // WinForms inserts newly added controls at the front of the Z-order.
