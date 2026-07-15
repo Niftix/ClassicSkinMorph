@@ -142,7 +142,8 @@ def main():
     if not source_entry:
         raise RuntimeError("Source skin not found: " + source_path)
     source = read_raw(source_entry)
-    if ("classic_%s.project_jade" % champion).lower().encode() not in source.lower():
+    source_lower = source.lower()
+    if b"classic" not in source_lower or b"project_jade.skn" not in source_lower:
         raise RuntimeError("Source is not the expected PBE Classic model")
 
     slots = [slot for slot in range(500)
