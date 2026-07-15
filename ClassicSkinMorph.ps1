@@ -18,27 +18,33 @@ $ltkExe = Join-Path $PSScriptRoot 'LTK Manager\ltk-manager.exe'
 $script:ltkSessionStarted = $false
 $script:ltkReady = $false
 $script:loadingTicks = 0
+$script:packageCount = 0
+$script:logStartLine = 0
+$script:ltkLog = Join-Path $env:APPDATA ("dev.leaguetoolkit.manager\logs\ltk-manager.{0}.log" -f (Get-Date).ToString('yyyy-MM-dd'))
 
 $form = New-Object Windows.Forms.Form
 $form.Text = 'Classic Skin Morph'
-$form.ClientSize = New-Object Drawing.Size(470, 170)
+$form.ClientSize = New-Object Drawing.Size(500, 350)
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'
-$form.BackColor = [Drawing.Color]::FromArgb(16, 24, 34)
-$form.ForeColor = [Drawing.Color]::WhiteSmoke
+$form.BackColor = [Drawing.Color]::White
+$form.ForeColor = [Drawing.Color]::FromArgb(18, 42, 77)
 
-$title = New-Object Windows.Forms.Label
-$title.Text = 'CLASSIC SKIN MORPH'
-$title.Font = New-Object Drawing.Font('Segoe UI Semibold', 18)
-$title.Location = New-Object Drawing.Point(22, 18)
-$title.AutoSize = $true
-$form.Controls.Add($title)
+$logoPath = Join-Path $PSScriptRoot 'assets\classic-skin-morph-logo.png'
+$logoImage = [Drawing.Image]::FromFile($logoPath)
+$logo = New-Object Windows.Forms.PictureBox
+$logo.Location = New-Object Drawing.Point(70, 12)
+$logo.Size = New-Object Drawing.Size(360, 153)
+$logo.SizeMode = [Windows.Forms.PictureBoxSizeMode]::Zoom
+$logo.BackColor = [Drawing.Color]::Transparent
+$logo.Image = $logoImage
+$form.Controls.Add($logo)
 
 $indicator = New-Object Windows.Forms.Label
 $indicator.Text = [char]0x25CF
 $indicator.Font = New-Object Drawing.Font('Segoe UI Symbol', 18)
-$indicator.Location = New-Object Drawing.Point(23, 66)
+$indicator.Location = New-Object Drawing.Point(29, 174)
 $indicator.AutoSize = $true
 $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
 $form.Controls.Add($indicator)
@@ -46,24 +52,66 @@ $form.Controls.Add($indicator)
 $status = New-Object Windows.Forms.Label
 $status.Text = 'Loading Classic skins...'
 $status.Font = New-Object Drawing.Font('Segoe UI Semibold', 11)
-$status.Location = New-Object Drawing.Point(52, 72)
-$status.Size = New-Object Drawing.Size(390, 24)
-$status.ForeColor = [Drawing.Color]::FromArgb(116, 192, 252)
+$status.Location = New-Object Drawing.Point(57, 181)
+$status.Size = New-Object Drawing.Size(413, 24)
+$status.ForeColor = [Drawing.Color]::FromArgb(27, 57, 105)
 $form.Controls.Add($status)
 
-$progress = New-Object Windows.Forms.ProgressBar
-$progress.Location = New-Object Drawing.Point(27, 108)
-$progress.Size = New-Object Drawing.Size(416, 6)
-$progress.Style = 'Marquee'
-$progress.MarqueeAnimationSpeed = 22
+$script:progressValue = 0
+$script:progressLive = $false
+$progress = New-Object Windows.Forms.Panel
+$progress.Location = New-Object Drawing.Point(30, 218)
+$progress.Size = New-Object Drawing.Size(440, 24)
+$progress.BackColor = [Drawing.Color]::FromArgb(229, 233, 239)
+$progress.BorderStyle = [Windows.Forms.BorderStyle]::FixedSingle
+$progress.Add_Paint({
+    param($sender, $eventArgs)
+    $width = [int](($sender.ClientSize.Width * $script:progressValue) / 100)
+    $barColor = if ($script:progressLive) { [Drawing.Color]::FromArgb(22, 163, 74) } else { [Drawing.Color]::FromArgb(32, 92, 164) }
+    if ($width -gt 0) {
+        $brush = New-Object Drawing.SolidBrush($barColor)
+        $eventArgs.Graphics.FillRectangle($brush, 0, 0, $width, $sender.ClientSize.Height)
+        $brush.Dispose()
+    }
+    $text = "$($script:progressValue)%"
+    $textColor = if ($script:progressValue -ge 48) { [Drawing.Color]::White } else { [Drawing.Color]::FromArgb(18, 42, 77) }
+    $textBrush = New-Object Drawing.SolidBrush($textColor)
+    $format = New-Object Drawing.StringFormat
+    $format.Alignment = [Drawing.StringAlignment]::Center
+    $format.LineAlignment = [Drawing.StringAlignment]::Center
+    $textFont = New-Object Drawing.Font('Segoe UI Semibold', 9)
+    $textBounds = New-Object Drawing.RectangleF(0, 0, $sender.ClientSize.Width, $sender.ClientSize.Height)
+    $eventArgs.Graphics.DrawString($text, $textFont, $textBrush, $textBounds, $format)
+    $textFont.Dispose()
+    $format.Dispose()
+    $textBrush.Dispose()
+})
 $form.Controls.Add($progress)
 
+$patchTitle = New-Object Windows.Forms.Label
+$patchTitle.Text = '------ Patch note V0.4 --------'
+$patchTitle.Font = New-Object Drawing.Font('Segoe UI Semibold', 9, [Drawing.FontStyle]::Bold)
+$patchTitle.Location = New-Object Drawing.Point(30, 258)
+$patchTitle.Size = New-Object Drawing.Size(440, 20)
+$patchTitle.TextAlign = [Drawing.ContentAlignment]::TopCenter
+$patchTitle.ForeColor = [Drawing.Color]::FromArgb(18, 42, 77)
+$form.Controls.Add($patchTitle)
+
 $footer = New-Object Windows.Forms.Label
-$footer.Text = 'V0.4'
-$footer.Location = New-Object Drawing.Point(27, 137)
-$footer.AutoSize = $true
-$footer.ForeColor = [Drawing.Color]::FromArgb(100, 116, 139)
+$footer.Text = "`r`n- Silent LTK integration`r`n- Automatic skin loading and cleanup`r`n- Improved stuck-process detection"
+$footer.Font = New-Object Drawing.Font('Segoe UI', 9)
+$footer.Location = New-Object Drawing.Point(30, 278)
+$footer.Size = New-Object Drawing.Size(440, 64)
+$footer.TextAlign = [Drawing.ContentAlignment]::TopCenter
+$footer.ForeColor = [Drawing.Color]::FromArgb(79, 91, 110)
 $form.Controls.Add($footer)
+
+function Set-ProgressValue([int]$Value, [bool]$Live = $false) {
+    $script:progressValue = [Math]::Min(100, [Math]::Max(0, $Value))
+    $script:progressLive = $Live
+    $progress.Invalidate()
+    $progress.Update()
+}
 
 function Test-PbePath {
     -not [string]::IsNullOrWhiteSpace([string]$settings.pbeChampionsDirectory) -and
@@ -95,18 +143,26 @@ function Initialize-PbePath {
 function Start-SkinEngine {
     try {
         $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
-        $status.ForeColor = [Drawing.Color]::FromArgb(116, 192, 252)
+        $status.ForeColor = [Drawing.Color]::FromArgb(27, 57, 105)
         $status.Text = 'Loading Classic skins...'
         $progress.Visible = $true
+        Set-ProgressValue 0
+        $script:logStartLine = if (Test-Path -LiteralPath $script:ltkLog) { @(Get-Content -LiteralPath $script:ltkLog).Count } else { 0 }
         [Windows.Forms.Application]::DoEvents()
-        $session = Start-ClassicLtkSession -LtkExe $ltkExe -ModLibrary $modLibrary -ChampionsDirectory $settings.pbeChampionsDirectory -SessionPath $sessionPath
+        $session = Start-ClassicLtkSession -LtkExe $ltkExe -ModLibrary $modLibrary -ChampionsDirectory $settings.pbeChampionsDirectory -SessionPath $sessionPath -ProgressCallback {
+            param($completed, $total)
+            Set-ProgressValue ([Math]::Min(30, [Math]::Max(1, [int](30 * $completed / $total))))
+            $status.Text = "Loading skin packages: $completed / $total"
+            [Windows.Forms.Application]::DoEvents()
+        }
         $script:ltkSessionStarted = $true
         $script:loadingTicks = 0
-        $status.Text = "Preparing $($session.packageCount) skins..."
+        $script:packageCount = $session.packageCount
+        $status.Text = "Building skin overlay: 0 / $($session.packageCount)"
     } catch {
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
-        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.ForeColor = [Drawing.Color]::FromArgb(185, 28, 28)
         $status.Text = $_.Exception.Message
     }
 }
@@ -120,22 +176,29 @@ $engineTimer.Add_Tick({
         $script:ltkReady = $false
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
-        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.ForeColor = [Drawing.Color]::FromArgb(185, 28, 28)
         $status.Text = 'Patcher stopped - restart Classic Skin Morph'
         return
     }
     if ($script:ltkReady) { return }
     $script:loadingTicks++
+    if ($script:packageCount -gt 0 -and (Test-Path -LiteralPath $script:ltkLog)) {
+        $newLogLines = @(Get-Content -LiteralPath $script:ltkLog | Select-Object -Skip $script:logStartLine)
+        $builtCount = @($newLogLines | Where-Object { $_ -like '*Patched WAD complete*' }).Count
+        $builtCount = [Math]::Min($script:packageCount, $builtCount)
+        Set-ProgressValue ([Math]::Min(95, 30 + [int](65 * $builtCount / $script:packageCount)))
+        $status.Text = "Building skin overlay: $builtCount / $($script:packageCount)"
+    }
     if (Test-ClassicLtkReady) {
         $script:ltkReady = $true
-        $progress.Visible = $false
+        Set-ProgressValue 100 $true
         $indicator.ForeColor = [Drawing.Color]::FromArgb(34, 197, 94)
-        $status.ForeColor = [Drawing.Color]::FromArgb(74, 222, 128)
+        $status.ForeColor = [Drawing.Color]::FromArgb(22, 130, 75)
         $status.Text = 'You can now play - CLASSIC SKINS ACTIVE'
     } elseif ($script:loadingTicks -ge 240) {
         $progress.Visible = $false
         $indicator.ForeColor = [Drawing.Color]::FromArgb(239, 68, 68)
-        $status.ForeColor = [Drawing.Color]::FromArgb(248, 113, 113)
+        $status.ForeColor = [Drawing.Color]::FromArgb(185, 28, 28)
         $status.Text = 'The LTK patcher is not responding'
     }
 })
@@ -154,11 +217,13 @@ $form.Add_FormClosing({
     if ($script:ltkSessionStarted -or (Test-Path -LiteralPath $sessionPath)) {
         $progress.Visible = $true
         $indicator.ForeColor = [Drawing.Color]::FromArgb(245, 158, 11)
-        $status.ForeColor = [Drawing.Color]::FromArgb(251, 191, 36)
+        $status.ForeColor = [Drawing.Color]::FromArgb(180, 125, 20)
         $status.Text = 'Stopping and cleaning up skins...'
         [Windows.Forms.Application]::DoEvents()
         try { Stop-ClassicLtkSession -SessionPath $sessionPath } catch { }
     }
+    if ($logo.Image) { $logo.Image = $null }
+    $logoImage.Dispose()
 })
 
 [void]$form.ShowDialog()

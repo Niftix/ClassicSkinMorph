@@ -81,6 +81,7 @@ function Start-ClassicLtkSession {
         [Parameter(Mandatory)][string]$ModLibrary,
         [Parameter(Mandatory)][string]$ChampionsDirectory,
         [Parameter(Mandatory)][string]$SessionPath,
+        [scriptblock]$ProgressCallback,
         [switch]$SkipProcessCheck
     )
     Restore-ClassicLtkSession -SessionPath $SessionPath -SkipProcessControl:$SkipProcessCheck
@@ -147,6 +148,7 @@ function Start-ClassicLtkSession {
             }
             Write-Utf8Json -Value $config -Path (Join-Path $configDirectory 'mod.config.json')
             $entries += [pscustomobject]@{ id=$id; installedAt=(Get-Date).ToUniversalTime().ToString('o'); format='fantome' }
+            if ($ProgressCallback) { & $ProgressCallback $ids.Count $packages.Count }
         }
         $library.mods = @($entries)
         Write-Utf8Json -Value $library -Path $libraryPath
