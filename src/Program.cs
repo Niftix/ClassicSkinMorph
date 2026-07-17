@@ -20,8 +20,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Classic Skin Morph")]
 [assembly: AssemblyProduct("Classic Skin Morph")]
-[assembly: AssemblyVersion("0.6.0.0")]
-[assembly: AssemblyFileVersion("0.6.0.0")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
 
 namespace ClassicSkinMorph
 {
@@ -131,6 +131,45 @@ namespace ClassicSkinMorph
         }
     }
 
+    internal sealed class HoverIconButton : Control
+    {
+        public double HoverAmount { get; private set; }
+        private bool hovered;
+        public HoverIconButton()
+        {
+            DoubleBuffered = true; Cursor = Cursors.Hand; TabStop = false;
+            MouseEnter += delegate { hovered = true; };
+            MouseLeave += delegate { hovered = false; };
+        }
+        public void AnimateStep()
+        {
+            double target = hovered ? 1.0 : 0.0;
+            HoverAmount += (target - HoverAmount) * .22;
+            if (Math.Abs(target - HoverAmount) < .01) HoverAmount = target;
+            Invalidate();
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            int gold = (int)(90 + 130 * HoverAmount);
+            int fill = (int)(12 + 25 * HoverAmount);
+            using (var background = new SolidBrush(Color.FromArgb(fill, 201, 169, 97)))
+                e.Graphics.FillRectangle(background, new Rectangle(1, 1, Width - 3, Height - 3));
+            using (var border = new Pen(Color.FromArgb(gold, 201, 169, 97), 1f + (float)HoverAmount))
+                e.Graphics.DrawRectangle(border, new Rectangle(1, 1, Width - 3, Height - 3));
+            Color textColor = Blend(Color.FromArgb(170, 180, 198), Color.FromArgb(244, 227, 168), HoverAmount);
+            TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
+        }
+        private static Color Blend(Color from, Color to, double amount)
+        {
+            return Color.FromArgb(
+                (int)(from.R + (to.R - from.R) * amount),
+                (int)(from.G + (to.G - from.G) * amount),
+                (int)(from.B + (to.B - from.B) * amount));
+        }
+    }
+
     internal sealed class ProgressCanvas : Control
     {
         private int percent;
@@ -151,6 +190,13 @@ namespace ClassicSkinMorph
         {
             displayedPercent += (percent - displayedPercent) * .16f;
             if (Math.Abs(percent - displayedPercent) < .1f) displayedPercent = percent;
+            Invalidate();
+        }
+
+        public void Reset()
+        {
+            percent = 0;
+            displayedPercent = 0;
             Invalidate();
         }
 
@@ -198,6 +244,76 @@ namespace ClassicSkinMorph
         public bool Existed { get; set; }
     }
 
+    internal sealed class UserPreferences
+    {
+        public bool LoadingScreen { get; set; }
+        public bool RankedBorders { get; set; }
+        public List<string> DisabledChampions { get; set; }
+        [ScriptIgnore]
+        public string ActiveJadeTier { get; set; }
+        public UserPreferences() { LoadingScreen = true; RankedBorders = true; DisabledChampions = new List<string>(); }
+    }
+
+    internal sealed class SettingsForm : Form
+    {
+        private readonly TreeView tree;
+        private bool syncing;
+        public UserPreferences Preferences { get; private set; }
+
+        public SettingsForm(string root, UserPreferences current)
+        {
+            Text = "Classic Skin Morph Settings"; ClientSize = new Size(390, 470);
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = false; MinimizeBox = false;
+            StartPosition = FormStartPosition.CenterParent; BackColor = Color.FromArgb(10, 20, 40);
+            ForeColor = Color.FromArgb(244, 246, 250); ShowInTaskbar = false;
+            tree = new TreeView { Location = new Point(16, 16), Size = new Size(358, 400), CheckBoxes = true,
+                BackColor = Color.FromArgb(13, 26, 48), ForeColor = Color.FromArgb(220, 225, 235), BorderStyle = BorderStyle.FixedSingle };
+            var champions = new TreeNode("Champions") { Name = "champions", Checked = true };
+            string mods = Path.Combine(root, "mods");
+            foreach (string package in Directory.GetFiles(mods, "*.fantome").OrderBy(path => path))
+            {
+                string key = Path.GetFileNameWithoutExtension(package).ToLowerInvariant();
+                if (IsLoadingPackage(key)) continue;
+                string display = Regex.Replace(key, "-(classic|base)$", "", RegexOptions.IgnoreCase).Replace('-', ' ');
+                display = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(display);
+                var node = new TreeNode(display) { Name = key, Tag = "champion", Checked = !current.DisabledChampions.Contains(key) };
+                champions.Nodes.Add(node);
+            }
+            champions.Checked = champions.Nodes.Cast<TreeNode>().All(node => node.Checked);
+            var loading = new TreeNode("Loading Screen") { Name = "loading", Checked = current.LoadingScreen };
+            loading.Nodes.Add(new TreeNode("Ranked Borders") { Name = "ranked", Tag = "ranked", Checked = current.LoadingScreen && current.RankedBorders });
+            tree.Nodes.Add(champions); tree.Nodes.Add(loading); tree.ExpandAll();
+            tree.AfterCheck += TreeAfterCheck; Controls.Add(tree);
+            var save = new Button { Text = "SAVE", DialogResult = DialogResult.OK, Location = new Point(218, 430), Size = new Size(75, 26), FlatStyle = FlatStyle.Flat };
+            var cancel = new Button { Text = "CANCEL", DialogResult = DialogResult.Cancel, Location = new Point(299, 430), Size = new Size(75, 26), FlatStyle = FlatStyle.Flat };
+            save.FlatAppearance.BorderColor = cancel.FlatAppearance.BorderColor = Color.FromArgb(201, 169, 97);
+            save.ForeColor = cancel.ForeColor = Color.FromArgb(244, 227, 168); save.BackColor = cancel.BackColor = BackColor;
+            Controls.Add(save); Controls.Add(cancel); AcceptButton = save; CancelButton = cancel;
+            FormClosing += delegate {
+                if (DialogResult != DialogResult.OK) return;
+                Preferences = new UserPreferences { LoadingScreen = loading.Checked, RankedBorders = loading.Checked && loading.Nodes[0].Checked,
+                    DisabledChampions = champions.Nodes.Cast<TreeNode>().Where(node => !node.Checked).Select(node => node.Name).ToList() };
+            };
+        }
+
+        private void TreeAfterCheck(object sender, TreeViewEventArgs e)
+        {
+            if (syncing) return; syncing = true;
+            try {
+                foreach (TreeNode child in e.Node.Nodes) child.Checked = e.Node.Checked;
+                // Champion children control the aggregate Champions checkbox.
+                // Loading Screen and Ranked Borders are independent: turning
+                // ranked borders off must keep the S1 loading screen enabled.
+                if (e.Node.Parent != null && e.Node.Parent.Name == "champions")
+                    e.Node.Parent.Checked = e.Node.Parent.Nodes.Cast<TreeNode>().All(node => node.Checked);
+            } finally { syncing = false; }
+        }
+        internal static bool IsLoadingPackage(string key)
+        {
+            return key.StartsWith("loading-screen-") || key.Contains("ranked-borders");
+        }
+    }
+
     internal static class Json
     {
         private static readonly JavaScriptSerializer Serializer = new JavaScriptSerializer { MaxJsonLength = int.MaxValue, RecursionLimit = 100 };
@@ -229,14 +345,29 @@ namespace ClassicSkinMorph
             backupRoot = Path.Combine(root, "state", "ltk-backup");
         }
 
-        public int Start(string championsDirectory, IProgress<LoadProgress> progress)
+        public int Start(string championsDirectory, UserPreferences preferences, IProgress<LoadProgress> progress)
         {
             Restore();
             EnsureNoConflictingProcesses();
             string ltkExe = Path.Combine(root, "LTK Manager", "ltk-manager.exe");
             string modsRoot = Path.Combine(root, "mods");
             if (!File.Exists(ltkExe)) throw new InvalidOperationException("LTK engine not found.");
-            string[] packages = Directory.Exists(modsRoot) ? Directory.GetFiles(modsRoot, "*.fantome").OrderBy(x => x).ToArray() : new string[0];
+            string rankKey = "loading-screen-rank-" + (preferences.ActiveJadeTier ?? "").ToLowerInvariant();
+            const string season1Key = "loading-screen-season1-jade";
+            bool hasRankPackage = preferences.LoadingScreen && preferences.RankedBorders &&
+                File.Exists(Path.Combine(modsRoot, rankKey + ".fantome"));
+            string[] packages = Directory.Exists(modsRoot) ? Directory.GetFiles(modsRoot, "*.fantome").Where(path => {
+                string key = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
+                if (key.StartsWith("loading-screen-rank-")) return hasRankPackage && key == rankKey;
+                // With ranked borders disabled (or Salt/no matching tier), the
+                // authentic S1 layout is the single player-card package used
+                // for every participant. Rank packages never coexist with it.
+                if (key == season1Key) return preferences.LoadingScreen && !hasRankPackage;
+                if (key == "loading-screen-black") return preferences.LoadingScreen;
+                if (key.Contains("ranked-borders")) return false;
+                if (key.StartsWith("loading-screen-")) return false;
+                return !preferences.DisabledChampions.Contains(key);
+            }).OrderBy(x => x).ToArray() : new string[0];
             if (packages.Length == 0) throw new InvalidOperationException("No .fantome packages were found.");
 
             string profileRoot = Path.Combine(dataRoot, "profiles", "default");
@@ -342,6 +473,20 @@ namespace ClassicSkinMorph
             session = null;
         }
 
+        public void ResetForReload()
+        {
+            Restore();
+            // Reset the active UI output and overlay metadata, but preserve
+            // unchanged multi-gigabyte WADs (especially Map11). Deleting the
+            // whole overlay makes LTK rebuild every map and can exhaust its
+            // process before the patcher host starts.
+            string profileRoot = Path.Combine(dataRoot, "profiles", "default");
+            TryDeleteFile(Path.Combine(profileRoot, "overlay", "DATA", "FINAL", "UI.wad.client"));
+            TryDeleteFile(Path.Combine(profileRoot, "override_meta.bin"));
+            TryDeleteFile(Path.Combine(profileRoot, "overlay.json"));
+            TryDeleteFile(Path.Combine(dataRoot, ".overlay-build-version"));
+        }
+
         public bool IsReady
         {
             get
@@ -426,21 +571,30 @@ namespace ClassicSkinMorph
         private readonly SweepCanvas accent;
         private readonly GlowCanvas logoGlow;
         private readonly PictureBox logo;
+        private readonly HoverIconButton launchButton;
+        private readonly HoverIconButton githubButton;
+        private readonly HoverIconButton settingsButton;
         private readonly System.Windows.Forms.Timer monitorTimer;
         private readonly System.Windows.Forms.Timer animationTimer;
         private readonly Stopwatch animationClock;
+        private readonly Stopwatch loadingClock = new Stopwatch();
         private LauncherState state = LauncherState.Loading;
         private int packageCount;
         private int logStartLine;
         private string logPath;
         private bool sessionStarted;
+        private bool isLoading;
+        private readonly string preferencesPath;
+        private UserPreferences preferences;
 
         public MainForm()
         {
             root = AppDomain.CurrentDomain.BaseDirectory;
             ltk = new LtkService(root);
+            preferencesPath = Path.Combine(root, "state", "user-preferences.json");
+            preferences = LoadPreferences();
             Text = "Classic Skin Morph";
-            ClientSize = new Size(500, 350);
+            ClientSize = new Size(560, 307);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -448,11 +602,24 @@ namespace ClassicSkinMorph
             ForeColor = Color.FromArgb(244, 246, 250);
             Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
 
-            accent = new SweepCanvas { Location = new Point(0, 0), Size = new Size(500, 3) };
+            accent = new SweepCanvas { Location = new Point(0, 0), Size = new Size(560, 3) };
             Controls.Add(accent);
 
+            launchButton = new HoverIconButton { Location = new Point(12, 12), Size = new Size(72, 28), Text = "LOAD", Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
+            githubButton = new HoverIconButton { Location = new Point(12, 45), Size = new Size(72, 28), Text = "GITHUB", Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) };
+            settingsButton = new HoverIconButton { Location = new Point(516, 12), Size = new Size(32, 28), Text = "⚙", Font = new Font("Segoe UI Symbol", 13f, FontStyle.Regular) };
+            Controls.Add(launchButton);
+            Controls.Add(githubButton);
+            Controls.Add(settingsButton);
+            launchButton.Click += async delegate { await BeginLoading(); };
+            githubButton.Click += delegate {
+                try { Process.Start(new ProcessStartInfo("https://github.com/Xitfin/ClassicSkinMorph") { UseShellExecute = true }); }
+                catch { }
+            };
+            settingsButton.Click += SettingsClicked;
+
             string logoPath = Path.Combine(root, "assets", "classic-skin-morph-logo.png");
-            logoGlow = new GlowCanvas { Location = new Point(100, 0), Size = new Size(300, 142) };
+            logoGlow = new GlowCanvas { Location = new Point(130, 0), Size = new Size(300, 142) };
             Controls.Add(logoGlow);
             logo = new PictureBox { Location = new Point(20, 16), Size = new Size(260, 110), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent };
             if (File.Exists(logoPath))
@@ -461,23 +628,49 @@ namespace ClassicSkinMorph
             }
             logoGlow.Controls.Add(logo);
 
-            status = new StatusCanvas { Location = new Point(20, 130), Size = new Size(460, 20), StatusText = "LOADING CLASSIC SKINS...", State = LauncherState.Loading };
+            status = new StatusCanvas { Location = new Point(50, 188), Size = new Size(460, 20), StatusText = "READY TO LOAD", State = LauncherState.Loading };
             Controls.Add(status);
 
-            progressBar = new ProgressCanvas { Location = new Point(40, 160), Size = new Size(420, 32), Percent = 0, State = LauncherState.Loading };
+            progressBar = new ProgressCanvas { Location = new Point(70, 211), Size = new Size(420, 32), Percent = 0, State = LauncherState.Loading };
             Controls.Add(progressBar);
 
-            active = new ActiveCanvas { Location = new Point(20, 200), Size = new Size(460, 20) };
+            active = new ActiveCanvas { Location = new Point(50, 243), Size = new Size(460, 20) };
             active.Visible = false;
             Controls.Add(active);
 
-            Controls.Add(new Panel { Location = new Point(40, 230), Size = new Size(420, 1), BackColor = Color.FromArgb(35, 50, 80) });
-            var patchTitle = MakeLabel(new Point(20, 239), new Size(460, 16), 8.5f, FontStyle.Bold, ContentAlignment.MiddleCenter, Color.FromArgb(212, 175, 55));
-            patchTitle.Text = "PATCH NOTE V0.6";
+            var about = new RichTextBox {
+                Location = new Point(60, 134), Size = new Size(440, 44), BorderStyle = BorderStyle.None,
+                BackColor = Color.FromArgb(10, 20, 40), ForeColor = Color.FromArgb(170, 180, 198),
+                Font = new Font("Segoe UI", 8.5f), ReadOnly = true, TabStop = false,
+                ScrollBars = RichTextBoxScrollBars.None, DetectUrls = false
+            };
+            about.Text = "Classic Skin Morph is a free and open-source tool based on LTK Manager. Designed for nostalgic players, it restores legacy assets to transform your game and let you relive the classic Rift experience !";
+            about.SelectAll(); about.SelectionAlignment = HorizontalAlignment.Center;
+            foreach (string emphasized in new[] { "Classic Skin Morph", "LTK Manager" })
+            {
+                int index = about.Text.IndexOf(emphasized, StringComparison.Ordinal);
+                if (index >= 0) { about.Select(index, emphasized.Length); about.SelectionFont = new Font("Segoe UI", 8.5f, FontStyle.Bold); }
+            }
+            about.Select(0, 0);
+            Controls.Add(about);
+
+            Controls.Add(new Panel { Location = new Point(70, 268), Size = new Size(420, 1), BackColor = Color.FromArgb(35, 50, 80) });
+            var patchTitle = MakeLabel(new Point(50, 277), new Size(460, 16), 8.5f, FontStyle.Bold, ContentAlignment.MiddleCenter, Color.FromArgb(212, 175, 55));
+            patchTitle.Text = "▼ PATCH NOTE V1.0";
+            patchTitle.Cursor = Cursors.Hand;
             Controls.Add(patchTitle);
-            var notes = MakeLabel(new Point(60, 266), new Size(400, 74), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
-            notes.Text = "- Added 15 Classic and legacy skins\r\n- Season 1 models added for Vayne and Blitzcrank\r\n- Enemy emotes and sounds hidden natively\r\n- Improved PBE path and dependency handling";
+            var notes = MakeLabel(new Point(90, 303), new Size(400, 82), 8.5f, FontStyle.Regular, ContentAlignment.TopLeft, Color.FromArgb(170, 180, 198));
+            notes.Text = "- Authentic Season 1 loading screen and classic UI\r\n- Jade rank-aware S3 borders from Salt to Legend\r\n- Classic splash arts, HUD icons, and legacy models\r\n- Improved PBE compatibility and LTK integration";
+            notes.Visible = false;
             Controls.Add(notes);
+            bool patchExpanded = false;
+            EventHandler togglePatch = delegate {
+                patchExpanded = !patchExpanded;
+                notes.Visible = patchExpanded;
+                patchTitle.Text = (patchExpanded ? "▲" : "▼") + " PATCH NOTE V1.0";
+                ClientSize = new Size(560, patchExpanded ? 397 : 307);
+            };
+            patchTitle.Click += togglePatch;
 
             // WinForms inserts newly added controls at the front of the Z-order.
             // Keep the animated glow behind the static, sharp logo and all text.
@@ -485,6 +678,9 @@ namespace ClassicSkinMorph
             logo.BringToFront();
             status.BringToFront();
             accent.BringToFront();
+            launchButton.BringToFront();
+            githubButton.BringToFront();
+            settingsButton.BringToFront();
 
             monitorTimer = new System.Windows.Forms.Timer { Interval = 500 };
             monitorTimer.Tick += TimerTick;
@@ -492,27 +688,69 @@ namespace ClassicSkinMorph
             animationTimer = new System.Windows.Forms.Timer { Interval = 40 };
             animationTimer.Tick += AnimationTick;
             animationTimer.Start();
-            Shown += async delegate { await BeginLoading(); };
             FormClosing += OnClosing;
         }
 
         private async Task BeginLoading()
         {
+            if (isLoading) return;
+            isLoading = true; launchButton.Enabled = false;
             try
             {
+                sessionStarted = false;
+                packageCount = 0;
+                monitorTimer.Interval = 250;
+                progressBar.Reset();
+                if (launchButton.Text == "RELOAD")
+                    await Task.Run(() => ltk.ResetForReload());
                 string champions = EnsurePbeConfiguration();
                 if (champions == null) { Close(); return; }
+                preferences.ActiveJadeTier = DetectJadeTier(champions);
+                if (preferences.LoadingScreen && preferences.RankedBorders && string.IsNullOrWhiteSpace(preferences.ActiveJadeTier))
+                    throw new InvalidOperationException("JADE RANK COULD NOT BE DETECTED. CLICK LOAD AGAIN.");
                 HideEnemySummonerEmotes(champions);
                 logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "dev.leaguetoolkit.manager", "logs", "ltk-manager." + DateTime.Now.ToString("yyyy-MM-dd") + ".log");
                 logStartLine = File.Exists(logPath) ? File.ReadLines(logPath).Count() : 0;
                 SetState(LauncherState.Loading, "LOADING CLASSIC SKINS...", 0);
-                var reporter = new Progress<LoadProgress>(p => SetState(LauncherState.Loading, "LOADING CLASSIC SKINS...", p.Percent));
-                packageCount = await Task.Run(() => ltk.Start(champions, reporter));
+                loadingClock.Restart();
+                monitorTimer.Start();
+                // LTK reports package-import progress up to 30%, then starts the much longer
+                // overlay build. Late 30% callbacks must never move our visual fallback back.
+                var reporter = new Progress<LoadProgress>(p => SetState(
+                    LauncherState.Loading,
+                    "LOADING CLASSIC SKINS...",
+                    Math.Max(progressBar.Percent, p.Percent)));
+                packageCount = await Task.Run(() => ltk.Start(champions, preferences, reporter));
                 sessionStarted = true;
                 status.StatusText = "LOADING CLASSIC SKINS...";
-                monitorTimer.Start();
+                launchButton.Text = "RELOAD";
             }
             catch (Exception ex) { SetState(LauncherState.Error, ex.Message.ToUpperInvariant(), progressBar.Percent); }
+            finally { isLoading = false; launchButton.Enabled = true; }
+        }
+
+        private UserPreferences LoadPreferences()
+        {
+            try {
+                if (File.Exists(preferencesPath)) {
+                    var loaded = Json.Read<UserPreferences>(preferencesPath);
+                    if (loaded.DisabledChampions == null) loaded.DisabledChampions = new List<string>();
+                    return loaded;
+                }
+            } catch { }
+            return new UserPreferences();
+        }
+
+        private void SettingsClicked(object sender, EventArgs e)
+        {
+            using (var dialog = new SettingsForm(root, preferences))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Preferences == null) return;
+                preferences = dialog.Preferences; Json.Write(preferencesPath, preferences);
+                launchButton.Text = sessionStarted ? "RELOAD" : "LOAD";
+                status.StatusText = sessionStarted ? "SETTINGS CHANGED — CLICK RELOAD" : "READY TO LOAD";
+                status.State = LauncherState.Loading; active.Visible = false;
+            }
         }
 
         private void TimerTick(object sender, EventArgs e)
@@ -524,12 +762,27 @@ namespace ClassicSkinMorph
                 monitorTimer.Interval = 1000;
                 return;
             }
-            if (!sessionStarted || packageCount <= 0 || !File.Exists(logPath)) return;
+            if (loadingClock.IsRunning && progressBar.Percent >= 30)
+            {
+                int visualProgress = 30 + (int)Math.Min(62, loadingClock.Elapsed.TotalSeconds * 62.0 / 60.0);
+                SetState(LauncherState.Loading, "LOADING CLASSIC SKINS...", Math.Max(progressBar.Percent, visualProgress));
+            }
+            if (!sessionStarted || packageCount <= 0)
+            {
+                return;
+            }
             try
             {
-                int built = File.ReadLines(logPath).Skip(logStartLine).Count(line => line.Contains("Patched WAD complete"));
+                int built = File.Exists(logPath)
+                    ? File.ReadLines(logPath).Skip(logStartLine).Count(line => line.Contains("Patched WAD complete"))
+                    : 0;
                 built = Math.Min(packageCount, built);
-                int value = Math.Min(95, 30 + 65 * built / packageCount);
+                int reportedValue = 30 + 65 * built / packageCount;
+                // Some LTK builds no longer append overlay progress to the daily log.
+                // Keep the UI moving while the engine rebuilds, but never claim completion
+                // before cslol-host/ltk_patcher_host is actually ready.
+                int fallbackValue = 30 + (int)Math.Min(62, loadingClock.Elapsed.TotalSeconds * 62.0 / 90.0);
+                int value = Math.Min(95, Math.Max(progressBar.Percent, Math.Max(reportedValue, fallbackValue)));
                 SetState(LauncherState.Loading, "LOADING CLASSIC SKINS...", value);
             }
             catch { }
@@ -545,6 +798,9 @@ namespace ClassicSkinMorph
             active.Phase = (seconds % 1.6) / 1.6;
             accent.Invalidate(); logoGlow.Invalidate(); status.Invalidate(); active.Invalidate();
             progressBar.AnimateStep();
+            launchButton.AnimateStep();
+            githubButton.AnimateStep();
+            settingsButton.AnimateStep();
         }
 
         private void SetState(LauncherState newState, string message, int percent)
@@ -626,6 +882,38 @@ namespace ClassicSkinMorph
                 string updated = Regex.Replace(text, pattern, "${1}1$2", RegexOptions.IgnoreCase);
                 if (updated != text) File.WriteAllText(persisted, updated, new UTF8Encoding(false));
             }
+        }
+
+        private static string DetectJadeTier(string championsDirectory)
+        {
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    string installRoot = Path.GetFullPath(Path.Combine(championsDirectory, "..", "..", "..", ".."));
+                    string lockfile = Path.Combine(installRoot, "lockfile");
+                    if (!File.Exists(lockfile)) throw new IOException("PBE lockfile is not ready.");
+                    string lockText;
+                    using (var stream = new FileStream(lockfile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                        lockText = reader.ReadToEnd();
+                    string[] values = lockText.Split(':');
+                    if (values.Length < 4) throw new IOException("PBE lockfile is incomplete.");
+                    string credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes("riot:" + values[3]));
+                    ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                    ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+                    using (var client = new WebClient())
+                    {
+                        client.Headers[HttpRequestHeader.Authorization] = "Basic " + credentials;
+                        string json = client.DownloadString("https://127.0.0.1:" + values[2] + "/lol-ranked/v1/current-ranked-stats");
+                        Match jade = Regex.Match(json, "\\\"JADE_RANKED_SOLO_5x5\\\"\\s*:\\s*\\{.*?\\\"tier\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                        if (jade.Success && jade.Groups[1].Value.Length > 0) return jade.Groups[1].Value;
+                    }
+                }
+                catch { }
+                if (attempt < 4) System.Threading.Thread.Sleep(350);
+            }
+            return "";
         }
 
         private void OnClosing(object sender, FormClosingEventArgs e)

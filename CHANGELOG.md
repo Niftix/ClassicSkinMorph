@@ -1,5 +1,14 @@
 # Changelog
 
+## V1.0
+
+- Added the authentic Season 1 loading-screen layout and classic interface assets.
+- Added Jade rank-aware Season 3 borders from Salt through Legend.
+- Refined player-card alignment, spell placement, names, splash arts, and HUD portraits.
+- Expanded the legacy model and Classic/Basic skin collection across the supported roster.
+- Updated the embedded LTK runtime and compatibility for the current League PBE build.
+- Added a clearer open-source project introduction to the launcher interface.
+
 ## V0.6
 
 - Added Classic PBE skins for Jax, Master Yi, Fiddlesticks, Garen, Heimerdinger, Karthus, Kassadin, Lux, Morgana, Nasus, Skarner, Teemo, and Twitch.

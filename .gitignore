@@ -1,6 +1,8 @@
 # Configuration et etat propres a chaque utilisateur
 /config.json
 /state/
+/research/
+/design/
 /.update-version
 
 # Fichiers temporaires et journaux
@@ -8,6 +10,8 @@
 *.tmp
 *.bak
 *.swp
+*.pyc
+__pycache__/
 ~$*
 
 # Windows et outils de developpement
