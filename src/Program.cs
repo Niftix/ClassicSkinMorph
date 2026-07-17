@@ -352,17 +352,14 @@ namespace ClassicSkinMorph
             string ltkExe = Path.Combine(root, "LTK Manager", "ltk-manager.exe");
             string modsRoot = Path.Combine(root, "mods");
             if (!File.Exists(ltkExe)) throw new InvalidOperationException("LTK engine not found.");
-            string rankKey = "loading-screen-rank-" + (preferences.ActiveJadeTier ?? "").ToLowerInvariant();
             const string season1Key = "loading-screen-season1-jade";
-            bool hasRankPackage = preferences.LoadingScreen && preferences.RankedBorders &&
-                File.Exists(Path.Combine(modsRoot, rankKey + ".fantome"));
             string[] packages = Directory.Exists(modsRoot) ? Directory.GetFiles(modsRoot, "*.fantome").Where(path => {
                 string key = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
-                if (key.StartsWith("loading-screen-rank-")) return hasRankPackage && key == rankKey;
-                // With ranked borders disabled (or Salt/no matching tier), the
-                // authentic S1 layout is the single player-card package used
-                // for every participant. Rank packages never coexist with it.
-                if (key == season1Key) return preferences.LoadingScreen && !hasRankPackage;
+                // The S1 package is always the shared loading-screen base. Ranked
+                // frames are now drawn per player by the runtime overlay; loading a
+                // rank package here would incorrectly apply one frame to everybody.
+                if (key.StartsWith("loading-screen-rank-")) return false;
+                if (key == season1Key) return preferences.LoadingScreen;
                 if (key == "loading-screen-black") return preferences.LoadingScreen;
                 if (key.Contains("ranked-borders")) return false;
                 if (key.StartsWith("loading-screen-")) return false;
@@ -561,6 +558,90 @@ namespace ClassicSkinMorph
         [DllImport("user32.dll")] private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
     }
 
+    internal sealed class RankSnapshot
+    {
+        public readonly List<string> Order = new List<string>();
+        public readonly List<string> Chaos = new List<string>();
+        public double GameTime;
+    }
+
+    internal sealed class RankOverlayForm : Form
+    {
+        [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+        private struct NativeRect { public int Left, Top, Right, Bottom; }
+        private const int WS_EX_TRANSPARENT = 0x20;
+        private const int WS_EX_TOOLWINDOW = 0x80;
+        private const int WS_EX_NOACTIVATE = 0x08000000;
+        private readonly string root;
+        private readonly List<string> orderRanks;
+        private readonly List<string> chaosRanks;
+        private readonly Dictionary<string, Image> frames = new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+
+        public RankOverlayForm(string rootPath, IEnumerable<string> order, IEnumerable<string> chaos)
+        {
+            root = rootPath;
+            orderRanks = order.ToList(); chaosRanks = chaos.ToList();
+            FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true;
+            BackColor = Color.Magenta; TransparencyKey = Color.Magenta; DoubleBuffered = true;
+            foreach (string tier in new[] { "wood", "silver", "gold", "plat", "diamond", "legend" })
+            {
+                string path = Path.Combine(root, "assets", "rank-overlays", tier + ".png");
+                if (File.Exists(path)) using (var source = Image.FromFile(path)) frames[tier] = new Bitmap(source);
+            }
+            SyncToGameWindow();
+        }
+
+        protected override bool ShowWithoutActivation { get { return true; } }
+        protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE; return cp; } }
+
+        public void SyncToGameWindow()
+        {
+            Process game = Process.GetProcessesByName("League of Legends").FirstOrDefault(p => p.MainWindowHandle != IntPtr.Zero);
+            NativeRect rect;
+            if (game != null && GetWindowRect(game.MainWindowHandle, out rect) && rect.Right > rect.Left && rect.Bottom > rect.Top)
+                Bounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            else Bounds = Screen.PrimaryScreen.Bounds;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e); e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            DrawTeam(e.Graphics, orderRanks, true); DrawTeam(e.Graphics, chaosRanks, false);
+        }
+
+        private void DrawTeam(Graphics graphics, List<string> ranks, bool top)
+        {
+            if (ranks.Count == 0) return;
+            float cardHeight = Math.Min(Height * 0.445f, Width * 0.40f);
+            float cardWidth = cardHeight * 401f / 726f;
+            float gap = Math.Max(8f, cardWidth * 0.065f);
+            float groupWidth = ranks.Count * cardWidth + (ranks.Count - 1) * gap;
+            float left = (Width - groupWidth) / 2f;
+            float y = top ? Height * 0.022f : Height - Height * 0.022f - cardHeight;
+            for (int index = 0; index < ranks.Count; index++)
+            {
+                string key = NormalizeTier(ranks[index]); Image frame;
+                if (key == "salt" || !frames.TryGetValue(key, out frame)) continue;
+                graphics.DrawImage(frame, left + index * (cardWidth + gap), y, cardWidth, cardHeight);
+            }
+        }
+
+        private static string NormalizeTier(string tier)
+        {
+            tier = (tier ?? "").Trim().ToLowerInvariant();
+            if (tier == "platinum") return "plat";
+            if (tier == "challenger") return "legend";
+            return tier;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) foreach (Image frame in frames.Values) frame.Dispose();
+            base.Dispose(disposing);
+        }
+    }
+
     internal sealed class MainForm : Form
     {
         private readonly string root;
@@ -575,6 +656,7 @@ namespace ClassicSkinMorph
         private readonly HoverIconButton githubButton;
         private readonly HoverIconButton settingsButton;
         private readonly System.Windows.Forms.Timer monitorTimer;
+        private readonly System.Windows.Forms.Timer rankOverlayTimer;
         private readonly System.Windows.Forms.Timer animationTimer;
         private readonly Stopwatch animationClock;
         private readonly Stopwatch loadingClock = new Stopwatch();
@@ -586,6 +668,10 @@ namespace ClassicSkinMorph
         private bool isLoading;
         private readonly string preferencesPath;
         private UserPreferences preferences;
+        private string championsDirectory;
+        private RankOverlayForm rankOverlay;
+        private bool rankLookupRunning;
+        private bool rankOverlayHandled;
 
         public MainForm()
         {
@@ -684,6 +770,9 @@ namespace ClassicSkinMorph
 
             monitorTimer = new System.Windows.Forms.Timer { Interval = 500 };
             monitorTimer.Tick += TimerTick;
+            rankOverlayTimer = new System.Windows.Forms.Timer { Interval = 500 };
+            rankOverlayTimer.Tick += RankOverlayTick;
+            rankOverlayTimer.Start();
             animationClock = Stopwatch.StartNew();
             animationTimer = new System.Windows.Forms.Timer { Interval = 40 };
             animationTimer.Tick += AnimationTick;
@@ -705,6 +794,7 @@ namespace ClassicSkinMorph
                     await Task.Run(() => ltk.ResetForReload());
                 string champions = EnsurePbeConfiguration();
                 if (champions == null) { Close(); return; }
+                championsDirectory = champions;
                 preferences.ActiveJadeTier = DetectJadeTier(champions);
                 if (preferences.LoadingScreen && preferences.RankedBorders && string.IsNullOrWhiteSpace(preferences.ActiveJadeTier))
                     throw new InvalidOperationException("JADE RANK COULD NOT BE DETECTED. CLICK LOAD AGAIN.");
@@ -916,9 +1006,101 @@ namespace ClassicSkinMorph
             return "";
         }
 
+        private async void RankOverlayTick(object sender, EventArgs e)
+        {
+            bool gameRunning = Process.GetProcessesByName("League of Legends").Any();
+            if (!gameRunning)
+            {
+                if (rankOverlay != null) { rankOverlay.Close(); rankOverlay = null; }
+                rankOverlayHandled = false; rankLookupRunning = false;
+                return;
+            }
+            if (rankOverlay != null)
+            {
+                rankOverlay.SyncToGameWindow();
+                double gameTime = ReadLiveGameTime();
+                if (gameTime > 1.0) { rankOverlay.Close(); rankOverlay = null; rankOverlayHandled = true; }
+                return;
+            }
+            if (rankOverlayHandled || rankLookupRunning || !sessionStarted || !preferences.LoadingScreen || !preferences.RankedBorders || string.IsNullOrEmpty(championsDirectory)) return;
+            rankLookupRunning = true;
+            try
+            {
+                RankSnapshot snapshot = await Task.Run(() => ReadLiveRanks(championsDirectory));
+                if (snapshot != null && snapshot.GameTime <= 1.0 && snapshot.Order.Count > 0 && snapshot.Chaos.Count > 0)
+                {
+                    rankOverlay = new RankOverlayForm(root, snapshot.Order, snapshot.Chaos);
+                    rankOverlay.Show(); rankOverlay.BringToFront();
+                }
+            }
+            catch { }
+            finally { rankLookupRunning = false; }
+        }
+
+        private static double ReadLiveGameTime()
+        {
+            try
+            {
+                ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+                using (var client = new WebClient())
+                {
+                    var data = new JavaScriptSerializer().DeserializeObject(client.DownloadString("https://127.0.0.1:2999/liveclientdata/gamestats")) as Dictionary<string, object>;
+                    object value; return data != null && data.TryGetValue("gameTime", out value) ? Convert.ToDouble(value) : -1;
+                }
+            }
+            catch { return -1; }
+        }
+
+        private static RankSnapshot ReadLiveRanks(string champions)
+        {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+            ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
+            var serializer = new JavaScriptSerializer();
+            object parsed;
+            using (var live = new WebClient()) parsed = serializer.DeserializeObject(live.DownloadString("https://127.0.0.1:2999/liveclientdata/playerlist"));
+            object[] players = parsed as object[];
+            if (players == null || players.Length < 2) return null;
+
+            string installRoot = Path.GetFullPath(Path.Combine(champions, "..", "..", "..", ".."));
+            string[] lockValues = File.ReadAllText(Path.Combine(installRoot, "lockfile")).Split(':');
+            if (lockValues.Length < 4) return null;
+            string auth = "Basic " + Convert.ToBase64String(Encoding.ASCII.GetBytes("riot:" + lockValues[3]));
+            string clientBase = "https://127.0.0.1:" + lockValues[2];
+            var snapshot = new RankSnapshot { GameTime = ReadLiveGameTime() };
+            using (var client = new WebClient())
+            {
+                client.Headers[HttpRequestHeader.Authorization] = auth;
+                foreach (object item in players)
+                {
+                    var player = item as Dictionary<string, object>; object riotValue, teamValue;
+                    if (player == null || !player.TryGetValue("riotId", out riotValue) || !player.TryGetValue("team", out teamValue)) continue;
+                    string summonerJson = client.DownloadString(clientBase + "/lol-summoner/v1/summoners?name=" + Uri.EscapeDataString(Convert.ToString(riotValue)));
+                    var summoner = serializer.DeserializeObject(summonerJson) as Dictionary<string, object>; object puuidValue;
+                    if (summoner == null || !summoner.TryGetValue("puuid", out puuidValue)) continue;
+                    string rankedJson = client.DownloadString(clientBase + "/lol-ranked/v1/ranked-stats/" + Uri.EscapeDataString(Convert.ToString(puuidValue)));
+                    var ranked = serializer.DeserializeObject(rankedJson) as Dictionary<string, object>; object mapValue;
+                    string tier = "SALT";
+                    if (ranked != null && ranked.TryGetValue("queueMap", out mapValue))
+                    {
+                        var queueMap = mapValue as Dictionary<string, object>; object jadeValue;
+                        if (queueMap != null && queueMap.TryGetValue("JADE_RANKED_SOLO_5x5", out jadeValue))
+                        {
+                            var jadeRank = jadeValue as Dictionary<string, object>; object tierValue;
+                            if (jadeRank != null && jadeRank.TryGetValue("tier", out tierValue) && !string.IsNullOrWhiteSpace(Convert.ToString(tierValue))) tier = Convert.ToString(tierValue);
+                        }
+                    }
+                    if (string.Equals(Convert.ToString(teamValue), "ORDER", StringComparison.OrdinalIgnoreCase)) snapshot.Order.Add(tier);
+                    else snapshot.Chaos.Add(tier);
+                }
+            }
+            return snapshot;
+        }
+
         private void OnClosing(object sender, FormClosingEventArgs e)
         {
             monitorTimer.Stop();
+            rankOverlayTimer.Stop();
+            if (rankOverlay != null) { rankOverlay.Close(); rankOverlay = null; }
             animationTimer.Stop();
             if (!sessionStarted && !File.Exists(Path.Combine(root, "state", "ltk-session.json"))) return;
             status.StatusText = "STOPPING AND CLEANING UP SKINS...";
